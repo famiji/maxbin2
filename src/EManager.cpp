@@ -570,36 +570,8 @@ void EManager::estimate_normaldistr()
 
 void EManager::run_EM(int run_time)
 {
-	int run, i, j, k, diff_count, tempbin, stable_count;
-	long double sum, d, max;
-	//int maxcount;
-#ifdef USE_TWO_DIST
-	long double d2;
-#endif
-	EucDist edist(kmer_len);
-	edist.setNormalization(true);
-#ifdef USE_TWO_DIST
-	//EucDist edist2(kmer_len2);
-	//SpearmanDist edist(kmer_len);
-	SpearmanDist edist2(kmer_len2);
-	//ManhattanDist edist(kmer_len);
-	edist2.setNormalization(true);
-#endif
+	int run, i, diff_count, stable_count;
 	ThreadPool *thread_pool = new ThreadPool(threadnum);
-
-	dist_prob = (long double*)malloc(sizeof(long double) * seed_num);
-	memset(dist_prob, '\0', sizeof(long double) * seed_num);
-#ifdef USE_TWO_DIST
-	dist_prob2 = (long double*)malloc(sizeof(long double) * seed_num);
-	memset(dist_prob2, '\0', sizeof(long double) * seed_num);
-#endif
-	abund_prob = (long double**)malloc(sizeof(long double*) * seed_num);
-	memset(abund_prob, '\0', sizeof(long double*) * seed_num);
-	for (i = 0; i < seed_num; i++)
-	{
-		abund_prob[i] = (long double*)malloc(sizeof(long double) * ab_num);
-		memset(abund_prob[i], '\0', sizeof(long double) * ab_num);
-	}
 
 	sprintf(str, "\nStart EM process.\n");
 	mylog->writelog(str, true);
@@ -655,158 +627,20 @@ void EManager::run_EM(int run_time)
 			*/
 		}
 		diff_count = 0;
-		for (i = 0; i < seqnum; i++)
 		{
-			if (seq->getSeqLenByNum(i) >= min_seq_length && is_profile_N[i] == false)
+			// Expectation step: parallelize over sequences instead of abundance files.
+			// Each thread processes one sequence with its own local probability arrays,
+			// eliminating the need for locks on shared buffers.
+			std::atomic<int> atomic_diff_count(0);
+			for (i = 0; i < seqnum; i++)
 			{
-				// Calculate tetramer probability
-				sum = 0;
-				for (j = 0; j < seed_num; j++)
+				if (seq->getSeqLenByNum(i) >= min_seq_length && is_profile_N[i] == false)
 				{
-					d = edist.getDist((double*)seq_profile[i]->getProfile(), (double*)seed_profile[j]->getProfile());
-					dist_prob[j] = get_prob_dist(d);
-					if (dist_prob[j] < VERY_SMALL_DOUBLE)
-					{
-						dist_prob[j] = VERY_SMALL_DOUBLE;
-					}
-					sum = sum + dist_prob[j];
+					thread_pool->enqueue(std::bind(&EManager::threadfunc_Seq_E, this, i, &atomic_diff_count));
 				}
-				for (j = 0; j < seed_num; j++)
-				{
-					dist_prob[j] = dist_prob[j] / sum;
-				}
-#ifdef USE_TWO_DIST
-				sum = 0;
-				for (j = 0; j < seed_num; j++)
-				{
-					d = edist2.getDist((double*)seq_profile2[i]->getProfile(), (double*)seed_profile2[j]->getProfile());
-					dist_prob2[j] = get_prob_dist2(d);
-					if (dist_prob2[j] < VERY_SMALL_DOUBLE)
-					{
-						dist_prob2[j] = VERY_SMALL_DOUBLE;
-					}
-					sum = sum + dist_prob2[j];
-				}
-				for (j = 0; j < seed_num; j++)
-				{
-					dist_prob2[j] = dist_prob2[j] / sum;
-				}
-#endif
-
-				// Insert thread function here
-				/* Replace thread functions with ThreadPool
-				k = 0;
-				while (k < ab_num)
-				{
-					maxcount = k + threadnum;
-					if (maxcount > ab_num)
-					{
-						maxcount = ab_num;
-					}
-					for (p = k; p < maxcount; p++)
-					{
-						//threadarr[p - k] = new std::thread(&EManager::threadfunc_E, this, ab_loader[p]->getAbundance(seq->getHeaderByNum(i)), p, p - k);
-printf("--1\n");
-						threadarr[p - k] = new std::thread(&EManager::threadfunc_E, this, seq_abundance[p][i], p, p - k);
-printf("--2%s\n", threadarr[p - k]->get_id());
-					}
-					for (p = k; p < maxcount; p++)
-					{
-						while (!(threadarr[p - k]->joinable()));
-						threadarr[p - k]->join();
-					}
-					for (p = k; p < maxcount; p++)
-					{
-						delete(threadarr[p - k]);
-					}
-					k = maxcount;
-				}
-				*/
-				for (k = 0; k < ab_num; k++)
-				{
-					thread_pool->enqueue(std::bind(&EManager::threadfunc_E, this, seq_abundance[k][i], k));
-				}
-				thread_pool->waitFinished();
-
-/* Put into thread function threadfunc_E
-				for (k = 0; k < ab_num; k++)
-				{
-					sum = 0;
-					for (j = 0; j < seed_num; j++)
-					{
-						//abund_prob[j][k] = get_prob_abund(ab_loader[k]->getAbundance(seq->getHeaderByNum(i)), poissondistr[j][k][0]);
-						abund_prob[j][k] = get_prob_abund(seq_abundance[k][i], poissondistr[j][k][0]);
-						if (abund_prob[j][k] < VERY_SMALL_DOUBLE)
-						{
-							abund_prob[j][k] = VERY_SMALL_DOUBLE;
-						}
-						sum += abund_prob[j][k];
-					}
-					for (j = 0; j < seed_num; j++)
-					{
-						abund_prob[j][k] = abund_prob[j][k] / sum;
-					}
-				}
-*/
-				sum = 0;
-				for (j = 0; j < seed_num; j++)
-				{
-#ifdef USE_TWO_DIST
-					seq_prob[i][j] = dist_prob[j] * dist_prob2[j];
-#else
-					seq_prob[i][j] = dist_prob[j];
-#endif
-/*
-if (seq_prob[i][j] != seq_prob[i][j])
-{
-	sprintf(str, "dist_prob[%d][%d] is nan.\n", i, j);
-	mylog->writelog(str, false);
-	exit(-1);
-}
-*/
-					for (k = 0; k < ab_num; k++)
-					{
-						seq_prob[i][j] = seq_prob[i][j] * abund_prob[j][k];
-/*
-if (abund_prob[j][k] != abund_prob[j][k])
-{
-	sprintf(str, "%d: abund_prob[%d][%d] is nan.\n", i, j, k);
-	mylog->writelog(str, false);
-	exit(-1);
-}
-*/
-					}
-					sum = sum + seq_prob[i][j];
-				}
-				/*
-				if (sum < VERY_SMALL_DOUBLE)
-				{
-					sum = 1;
-				}
-				*/
-				max = 0;
-				tempbin = -1;
-				sprintf(str, "[%s]", seq->getHeaderByNum(i));
-				mylog->writelog(str, false);
-				for (j = 0; j < seed_num; j++)
-				{
-					seq_prob[i][j] = seq_prob[i][j] / sum;
-					if (max < seq_prob[i][j])
-					{
-						max = seq_prob[i][j];
-						tempbin = j;
-					}
-					sprintf(str, "\t(%d)%Lf", j + 1, seq_prob[i][j]);
-					mylog->writelog(str, false);
-				}
-				if (seq_bin[i] != tempbin)
-				{
-					diff_count++;
-					seq_bin[i] = tempbin;
-				}
-				mylog->writelog("\n", false);
-				is_estimated[i] = true;
 			}
+			thread_pool->waitFinished();
+			diff_count = (int)atomic_diff_count;
 		}
 
 		if (diff_count == 0)
@@ -998,55 +832,16 @@ if (abund_prob[j][k] != abund_prob[j][k])
 	free(poissondistr);
 	*/
 
-	free(dist_prob);
-#ifdef USE_TWO_DIST
-	free(dist_prob2);
-#endif
-	for (i = 0; i < seed_num; i++)
-	{
-		free(abund_prob[i]);
-	}
-	free(abund_prob);
-
 	//free(threadarr);
 	delete(thread_pool);
 }
 
 bool EManager::classify(long double min_prob, unsigned int min_seqlen)
 {
-	int i, j, k;
-	long double max, sum, d;
+	int i, j;
 	bool ret;
 
 	ThreadPool *thread_pool = new ThreadPool(threadnum);
-
-	EucDist edist(kmer_len);
-	edist.setNormalization(true);
-#ifdef USE_TWO_DIST
-	//EucDist edist2(kmer_len2);
-	//SpearmanDist edist(kmer_len);
-	SpearmanDist edist2(kmer_len2);
-	//ManhattanDist edist(kmer_len);
-	edist2.setNormalization(true);
-#endif
-
-	// Allocate memory for threads
-	//threadarr = (std::thread**)malloc(sizeof(thread*) * threadnum);
-	//memset(threadarr, '\0', sizeof(thread*) * threadnum);
-
-	dist_prob = (long double*)malloc(sizeof(long double) * seed_num);
-	memset(dist_prob, '\0', sizeof(long double) * seed_num);
-#ifdef USE_TWO_DIST
-	dist_prob2 = (long double*)malloc(sizeof(long double) * seed_num);
-	memset(dist_prob2, '\0', sizeof(long double) * seed_num);
-#endif
-	abund_prob = (long double**)malloc(sizeof(long double*) * seed_num);
-	memset(abund_prob, '\0', sizeof(long double*) * seed_num);
-	for (i = 0; i < seed_num; i++)
-	{
-		abund_prob[i] = (long double*)malloc(sizeof(long double) * ab_num);
-		memset(abund_prob[i], '\0', sizeof(long double) * ab_num);
-	}
 
 	sprintf(str, "\nClassifying sequences based on the EM result.\nMinimum probability for binning: %0.2Lf\n", MIN_PROB_THRESHOLD);
 	mylog->writelog(str, true);
@@ -1074,186 +869,16 @@ bool EManager::classify(long double min_prob, unsigned int min_seqlen)
 	{
 		if (seq->getSeqLenByNum(i) >= min_seqlen && is_profile_N[i] == false)
 		{
-			if (is_estimated[i] == false)
-			{
-				// Test of separating abundance probability and tetramer probability
-				sum = 0;
-				for (j = 0; j < seed_num; j++)
-				{
-					d = edist.getDist((double*)seq_profile[i]->getProfile(), (double*)seed_profile[j]->getProfile());
-					dist_prob[j] = get_prob_dist(d);
-					sum = sum + dist_prob[j];
-				}
-				for (j = 0; j < seed_num; j++)
-				{
-					dist_prob[j] = dist_prob[j] / sum;
-				}
-#ifdef USE_TWO_DIST
-				sum = 0;
-				for (j = 0; j < seed_num; j++)
-				{
-					d = edist2.getDist((double*)seq_profile2[i]->getProfile(), (double*)seed_profile2[j]->getProfile());
-					dist_prob2[j] = get_prob_dist2(d);
-					sum = sum + dist_prob2[j];
-				}
-				for (j = 0; j < seed_num; j++)
-				{
-					dist_prob2[j] = dist_prob2[j] / sum;
-				}
-#endif
-
-				// Insert thread function here
-				// threadfunc(abund, k, threadcount);
-				/* Replace traditional thread with ThreadPool
-				int maxcount;
-				k = 0;
-				while (k < ab_num)
-				{
-					maxcount = k + threadnum;
-					if (maxcount > ab_num)
-					{
-						maxcount = ab_num;
-					}
-					for (p = k; p < maxcount; p++)
-					{
-						//threadarr[p - k] = new std::thread(&EManager::threadfunc_E, this, ab_loader[p]->getAbundance(seq->getHeaderByNum(i)), p, p - k);
-						threadarr[p - k] = new std::thread(&EManager::threadfunc_E, this, seq_abundance[p][i], p, p - k);
-					}
-					for (p = k; p < maxcount; p++)
-					{
-						threadarr[p - k]->join();
-						delete(threadarr[p - k]);
-					}
-					k = maxcount;
-				}
-				*/
-				for (k = 0; k < ab_num; k++)
-				{
-					thread_pool->enqueue(std::bind(&EManager::threadfunc_E, this, seq_abundance[k][i], k));
-				}
-				thread_pool->waitFinished();
-/*
-				for (k = 0; k < ab_num; k++)
-				{
-					sum = 0;
-					for (j = 0; j < seed_num; j++)
-					{
-						abund_prob[j][k] = get_prob_abund(seq_abundance[k][i], poissondistr[j][k][0]);
-						sum += abund_prob[j][k];
-					}
-					for (j = 0; j < seed_num; j++)
-					{
-						abund_prob[j][k] = abund_prob[j][k] / sum;
-					}
-				}
-*/
-				sum = 0;
-				for (j = 0; j < seed_num; j++)
-				{
-#ifdef USE_TWO_DIST
-					seq_prob[i][j] = dist_prob[j] * dist_prob2[j];
-#else
-					seq_prob[i][j] = dist_prob[j];
-#endif
-					for (k = 0; k < ab_num; k++)
-					{
-						seq_prob[i][j] = seq_prob[i][j] * abund_prob[j][k];
-					}
-					sum = sum + seq_prob[i][j];
-				}
-				sprintf(str, "[%s]", seq->getHeaderByNum(i));
-				mylog->writelog(str, false);
-				for (j = 0; j < seed_num; j++)
-				{
-					seq_prob[i][j] = seq_prob[i][j] / sum;
-					// Special handling of NAN (caused when sum is too small...)
-					sprintf(str, "\t(%d)%Lf", j + 1, seq_prob[i][j]);
-					mylog->writelog(str, false);
-					if (seq_prob[i][j] != seq_prob[i][j])
-					{
-						seq_prob[i][j] = 0;
-					}
-				}
-				mylog->writelog("\n", false);
-			}
-
-			max = 0;
-			for (j = 0; j < seed_num; j++)
-			{
-				if (seq_prob[i][j] > max)
-				{
-					max = seq_prob[i][j];
-					seq_bin[i] = j;
-				}
-			}
-			if (max <= min_prob)
-			{
-				seq_bin[i] = -1;
-			}
-			else
-			{
-				seed_count[seq_bin[i]]++;
-			}
-			if (seq_bin[i] != -1)
-			{
-				sprintf(str, "seq [%s] assigned to bin [%d]\n", seq->getHeaderByNum(i), seq_bin[i]);
-				mylog->writelog(str, false);
-			}
-
-			/* The writing of prob_dist file is disabled. MaxBin will no longer produce this file.
-			   If the writing of prob_dist file is to be resumed, get_prob_abund, poissondistr, and ab_loader need to be re-designed.
-
-				sprintf(str, "%s.prob_dist", outputfile);
-				fstream *distf = new fstream(str, ios::out);
-				sum = 0;
-				for (j = 0; j < seed_num; j++)
-				{
-					d = edist.getDist(seq_profile[i]->getProfile(), seed_profile[j]->getProfile());
-					seq_prob[i][j] = get_prob_dist(d);
-					sum = sum + seq_prob[i][j];
-				}
-				sprintf(str, "[%s]", seq->getHeaderByNum(i));
-				distf->write(str, strlen(str));
-				for (j = 0; j < seed_num; j++)
-				{
-					seq_prob[i][j] = seq_prob[i][j] / sum;
-					// Special handling of NAN (caused when sum is too small...)
-					sprintf(str, "\t(%d)%Lf", j + 1, seq_prob[i][j]);
-					distf->write(str, strlen(str));
-					if (seq_prob[i][j] != seq_prob[i][j])
-					{
-						seq_prob[i][j] = 0;
-					}
-				}
-				distf->write("\n", 1);
-				sum = 0;
-				for (j = 0; j < seed_num; j++)
-				{
-					seq_prob[i][j] = get_prob_abund(ab_loader->getAbundance(seq->getHeaderByNum(i)), poissondistr[j]);
-					sum = sum + seq_prob[i][j];
-				}
-				for (j = 0; j < seed_num; j++)
-				{
-					seq_prob[i][j] = seq_prob[i][j] / sum;
-					// Special handling of NAN (caused when sum is too small...)
-					sprintf(str, "\t(%d)%Lf", j + 1, seq_prob[i][j]);
-					distf->write(str, strlen(str));
-					if (seq_prob[i][j] != seq_prob[i][j])
-					{
-						seq_prob[i][j] = 0;
-					}
-				}
-				distf->write("\n", 1);
-
-				distf->close();
-				delete(distf);
-			*/
+			// Classify this sequence in parallel; threadfunc_Seq_C handles
+			// local probability arrays and bin assignment.
+			thread_pool->enqueue(std::bind(&EManager::threadfunc_Seq_C, this, i, min_prob, min_seqlen));
 		}
 		else
 		{
 			seq_bin[i] = -1;
 		}
 	}
+	thread_pool->waitFinished();
 	/*
 	for (i = 0; i < seed_num; i++)
 	{
@@ -1272,16 +897,6 @@ bool EManager::classify(long double min_prob, unsigned int min_seqlen)
 	}
 	free(poissondistr);
 	*/
-
-	free(dist_prob);
-#ifdef USE_TWO_DIST
-	free(dist_prob2);
-#endif
-	for (i = 0; i < seed_num; i++)
-	{
-		free(abund_prob[i]);
-	}
-	free(abund_prob);
 
 	//free(threadarr);
 	delete(thread_pool);
@@ -1649,9 +1264,7 @@ void EManager::threadfunc_E(long double abund, int k)
 	for (j = 0; j < seed_num; j++)
 	{
 		//abund_prob[j][k] = get_prob_abund(abund, poissondistr[j][k][t_count]);
-		thread_mutex.lock();
 		abund_prob[j][k] = get_prob_abund(abund, seed_abundance[j][k]);
-		thread_mutex.unlock();
 		if (abund_prob[j][k] < VERY_SMALL_DOUBLE)
 		{
 			abund_prob[j][k] = VERY_SMALL_DOUBLE;
@@ -1682,9 +1295,7 @@ void EManager::threadfunc_M(int i)
 	d = 0;
 	for (j = 0; j < seqnum; j++)
 	{
-		thread_mutex.lock();
 		len = seq->getSeqLenByNum(j);
-		thread_mutex.unlock();
 
 		if (len >= min_seq_length && seq_prob[j][i] == seq_prob[j][i] && is_profile_N[j] == false)
 		{

@@ -10,6 +10,7 @@
 #include "NormalDistribution.h"
 #include "ThreadPool.h"
 #include <time.h>
+#include <atomic>
 //#include <thread>
 //#include <mutex>
 /*
@@ -107,6 +108,8 @@ class EManager
 		void logtime_end();
 		void threadfunc_E(long double abund, int k);
 		void threadfunc_M(int i);
+		void threadfunc_Seq_E(int i, std::atomic<int>* diff_count);
+		void threadfunc_Seq_C(int i, long double min_prob, unsigned int min_seqlen);
 };
 
 
