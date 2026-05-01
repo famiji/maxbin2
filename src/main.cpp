@@ -102,11 +102,12 @@ int main(int argc, char *argv[])
 		em.addAbund(abund_file[i]);
 	}
 	em.setVerbose(isverbose);
-	if (threadnum > abund_count)
-	{
-		threadnum = abund_count;
-	}
+	
+	// DEBUG: 输出线程设置信息
+	fprintf(stderr, "[DEBUG] main.cpp: abund_count=%d, requested threadnum=%d\n", abund_count, threadnum);
+	
 	em.setThreadNum(threadnum);
+	fprintf(stderr, "[DEBUG] main.cpp: Thread number set to %d\n", threadnum);
 	if (maxem != -1)
 	{
 		em.setMaxEM(maxem);

@@ -8,8 +8,10 @@
 ThreadPool::ThreadPool(unsigned int n)	: processed(), busy(), stop()
 //ThreadPool::ThreadPool(unsigned int n)
 {
+	fprintf(stderr, "[DEBUG] ThreadPool::ThreadPool: Creating %u worker threads\n", n);
 	for (unsigned int i=0; i<n; ++i)
 		workers.emplace_back(std::bind(&ThreadPool::thread_proc, this));
+	fprintf(stderr, "[DEBUG] ThreadPool::ThreadPool: Created %zu worker threads\n", workers.size());
 }
 
 ThreadPool::~ThreadPool()

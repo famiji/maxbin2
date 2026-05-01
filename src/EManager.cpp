@@ -177,6 +177,7 @@ void EManager::setVerbose(bool is_verbose)
 void EManager::setThreadNum(int num)
 {
 	threadnum = num;
+	fprintf(stderr, "[DEBUG] EManager::setThreadNum: threadnum set to %d\n", threadnum);
 }
 
 void EManager::setMaxEM(int maxem)
@@ -571,7 +572,10 @@ void EManager::estimate_normaldistr()
 void EManager::run_EM(int run_time)
 {
 	int run, i, j, diff_count, stable_count;
+	
+	fprintf(stderr, "[DEBUG] EManager::run_EM: Creating ThreadPool with %d threads\n", threadnum);
 	ThreadPool *thread_pool = new ThreadPool(threadnum);
+	fprintf(stderr, "[DEBUG] EManager::run_EM: ThreadPool created successfully\n");
 
 	sprintf(str, "\nStart EM process.\n");
 	mylog->writelog(str, true);
