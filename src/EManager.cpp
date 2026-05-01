@@ -570,33 +570,13 @@ void EManager::estimate_normaldistr()
 
 void EManager::run_EM(int run_time)
 {
-	int run, i, diff_count, stable_count;
+	int run, i, j, diff_count, stable_count;
 	ThreadPool *thread_pool = new ThreadPool(threadnum);
 
 	sprintf(str, "\nStart EM process.\n");
 	mylog->writelog(str, true);
 
-	// Allocate memory for threads
-	//threadarr = (std::thread**)malloc(sizeof(thread*) * threadnum);
-	//memset(threadarr, '\0', sizeof(thread*) * threadnum);
-	//**Use ThreadPool instead of allocating memory by ourselves**
-
-	// Execute EM algorithm
 	stable_count = 0;
-	/*
-	poissondistr = (poisson****)malloc(sizeof(poisson***) * seed_num);
-	memset(poissondistr, '\0', sizeof(poisson***) * seed_num);
-	for (i = 0; i < seed_num; i++)
-	{
-		poissondistr[i] = (poisson***)malloc(sizeof(poisson**) * ab_num);
-		memset(poissondistr[i], '\0', sizeof(poisson**) * ab_num);
-		for (j = 0; j < ab_num; j++)
-		{
-			poissondistr[i][j] = (poisson**)malloc(sizeof(poisson*) * threadnum);
-			memset(poissondistr[i][j], '\0', sizeof(poisson*) * threadnum);
-		}
-	}
-	*/
 	for (run = 0; run < run_time; run++)
 	{
 		sprintf(str, "Iteration %d\n", run + 1);
@@ -606,7 +586,6 @@ void EManager::run_EM(int run_time)
 		// For each run, calculate the distance between the sequences and seeds and calculate probability
 		for (i = 0; i < seed_num; i++)
 		{
-			//sprintf(str, "Abundance info [%s] [%d]: %Lf\n", seed_header[i], i + 1, seed_abundance[i]);
 			sprintf(str, "Abundance info [%s] [%d]:", seed_header[i], i + 1);
 			mylog->writelog(str, false);
 			for (j = 0; j < ab_num; j++)
@@ -616,21 +595,8 @@ void EManager::run_EM(int run_time)
 			}
 			sprintf(str, "\n");
 			mylog->writelog(str, false);
-			/*
-			for (j = 0; j < ab_num; j++)
-			{
-				for (k = 0; k < threadnum; k++)
-				{
-					poissondistr[i][j][k] = new poisson(seed_abundance[i][j]);
-				}
-			}
-			*/
 		}
-		diff_count = 0;
 		{
-			// Expectation step: parallelize over sequences instead of abundance files.
-			// Each thread processes one sequence with its own local probability arrays,
-			// eliminating the need for locks on shared buffers.
 			std::atomic<int> atomic_diff_count(0);
 			for (i = 0; i < seqnum; i++)
 			{
@@ -740,105 +706,14 @@ void EManager::run_EM(int run_time)
 			break;
 		}
 	}
-	/*
-	for (i = 0; i < seed_num; i++)
-	{
-		for (j = 0; j < ab_num; j++)
-		{
-			free(poissondistr[i][j]);
-		}
-		free(poissondistr[i]);
-	}
-	free(poissondistr);
-	*/
 	sprintf(str, "\nEM finishes successfully.\n");
 	mylog->writelog(str, true);
-
-	/* Write out dist information -- not used anymore
-	   Also the get_probability function is outdated and needs to be re-written if this function is to revive.
-
-	long double **seed_prob;
-	sprintf(str, "%s.dist", outputfile);
-	fstream *dist = new fstream(str, ios::out);
-	poissondistr = (poisson***)malloc(sizeof(poisson**) * seed_num);
-	memset(poissondistr, '\0', sizeof(poisson**) * seed_num);
-	for (i = 0; i < seed_num; i++)
-	{
-		poissondistr[i] = (poisson**)malloc(sizeof(poisson*) * ab_num);
-		memset(poissondistr[i], '\0', sizeof(poisson*) * ab_num);
-	}
-	seed_prob = (long double**)malloc(sizeof(long double*) * seed_num);
-	memset(seed_prob, '\0', sizeof(long double*) * seed_num);
-	for (i = 0; i < seed_num; i++)
-	{
-		for (j = 0; j < ab_num; j++)
-		{
-			poissondistr[i][j] = new poisson(seed_abundance[i][j]);
-		}
-		seed_prob[i] = (long double*)malloc(sizeof(long double) * seed_num);
-		memset(seed_prob[i], '\0', sizeof(long double) * seed_num);
-	}
-	for (i = 0; i < seed_num; i++)
-	{
-		sprintf(str, "\tBin%3d", i + 1);
-		dist->write(str, strlen(str));
-	}
-	dist->write("\n", 1);
-	for (i = 0; i < seed_num; i++)
-	{
-		sum = 0;
-		for (j = 0; j < seed_num; j++)
-		{
-			d = edist.getDist(seed_profile[i]->getProfile(), seed_profile[j]->getProfile());
-#ifdef USE_TWO_DIST
-			d2 = edist2.getDist(seed_profile2[i]->getProfile(), seed_profile2[j]->getProfile());
-			seed_prob[i][j] = get_probability(d, d2, seed_abundance[j], poissondistr[i]);
-#else
-			seed_prob[i][j] = get_probability(d, seed_abundance[j], poissondistr[i]);
-#endif
-			sum = sum + seed_prob[i][j];
-		}
-		sprintf(str, "Bin%3d", i + 1);
-		dist->write(str, strlen(str));
-		for (j = 0; j < seed_num; j++)
-		{
-			seed_prob[i][j] = seed_prob[i][j] / sum;
-			// Special handling of NAN (caused when sum is too small...)
-			if (seed_prob[i][j] != seed_prob[i][j])
-			{
-				seed_prob[i][j] = 0;
-			}
-			sprintf(str, "\t%Lf", seed_prob[i][j]);
-			dist->write(str, strlen(str));
-		}
-		dist->write("\n", 1);
-	}
-	dist->close();
-	delete(dist);
-
-	for (i = 0; i < seed_num; i++)
-	{
-		for (j = 0; j < ab_num; j++)
-		{
-			if (poissondistr[i][j] != NULL)
-			{
-				delete(poissondistr[i][j]);
-			}
-		}
-		free(poissondistr[i]);
-		free(seed_prob[i]);
-	}
-	free(seed_prob);
-	free(poissondistr);
-	*/
-
-	//free(threadarr);
 	delete(thread_pool);
 }
 
 bool EManager::classify(long double min_prob, unsigned int min_seqlen)
 {
-	int i, j;
+	int i;
 	bool ret;
 
 	ThreadPool *thread_pool = new ThreadPool(threadnum);
@@ -846,31 +721,10 @@ bool EManager::classify(long double min_prob, unsigned int min_seqlen)
 	sprintf(str, "\nClassifying sequences based on the EM result.\nMinimum probability for binning: %0.2Lf\n", MIN_PROB_THRESHOLD);
 	mylog->writelog(str, true);
 
-	/*
-	poissondistr = (poisson****)malloc(sizeof(poisson***) * seed_num);
-	memset(poissondistr, '\0', sizeof(poisson***) * seed_num);
-	for (i = 0; i < seed_num; i++)
-	{
-		poissondistr[i] = (poisson***)malloc(sizeof(poisson**) * ab_num);
-		memset(poissondistr[i], '\0', sizeof(poisson**) * ab_num);
-		for (j = 0; j < ab_num; j++)
-		{
-			poissondistr[i][j] = (poisson**)malloc(sizeof(poisson*) * threadnum);
-			memset(poissondistr[i][j], '\0', sizeof(poisson*) * threadnum);
-			for (k = 0; k < threadnum; k++)
-			{
-				poissondistr[i][j][k] = new poisson(seed_abundance[i][j]);
-			}
-		}
-	}
-	*/
-
 	for (i = 0; i < seqnum; i++)
 	{
 		if (seq->getSeqLenByNum(i) >= min_seqlen && is_profile_N[i] == false)
 		{
-			// Classify this sequence in parallel; threadfunc_Seq_C handles
-			// local probability arrays and bin assignment.
 			thread_pool->enqueue(std::bind(&EManager::threadfunc_Seq_C, this, i, min_prob, min_seqlen));
 		}
 		else
@@ -879,26 +733,6 @@ bool EManager::classify(long double min_prob, unsigned int min_seqlen)
 		}
 	}
 	thread_pool->waitFinished();
-	/*
-	for (i = 0; i < seed_num; i++)
-	{
-		for (j = 0; j < ab_num; j++)
-		{
-			for (k = 0; k < threadnum; k++)
-			{
-				if (poissondistr[i][j][k] != NULL)
-				{
-					delete(poissondistr[i][j][k]);
-				}
-			}
-			free(poissondistr[i][j]);
-		}
-		free(poissondistr[i]);
-	}
-	free(poissondistr);
-	*/
-
-	//free(threadarr);
 	delete(thread_pool);
 
 	ret = false;
@@ -1264,7 +1098,9 @@ void EManager::threadfunc_E(long double abund, int k)
 	for (j = 0; j < seed_num; j++)
 	{
 		//abund_prob[j][k] = get_prob_abund(abund, poissondistr[j][k][t_count]);
+		thread_mutex.lock();
 		abund_prob[j][k] = get_prob_abund(abund, seed_abundance[j][k]);
+		thread_mutex.unlock();
 		if (abund_prob[j][k] < VERY_SMALL_DOUBLE)
 		{
 			abund_prob[j][k] = VERY_SMALL_DOUBLE;
@@ -1319,6 +1155,210 @@ void EManager::threadfunc_M(int i)
 	for (k = 0 ; k < ab_num; k++)
 	{
 		seed_abundance[i][k] = seed_abundance[i][k] / d;
+	}
+}
+
+void EManager::threadfunc_Seq_E(int seq_idx, std::atomic<int>* atomic_diff_count)
+{
+	int j, k, tempbin;
+	long double sum, d, max;
+#ifdef USE_TWO_DIST
+	long double d2;
+#endif
+
+	EucDist edist(kmer_len);
+	edist.setNormalization(true);
+#ifdef USE_TWO_DIST
+	SpearmanDist edist2(kmer_len2);
+	edist2.setNormalization(true);
+#endif
+
+	std::vector<long double> local_dist_prob(seed_num);
+#ifdef USE_TWO_DIST
+	std::vector<long double> local_dist_prob2(seed_num);
+#endif
+	std::vector<long double> local_abund_prob(seed_num);
+
+	sum = 0;
+	for (j = 0; j < seed_num; j++)
+	{
+		d = edist.getDist((double*)seq_profile[seq_idx]->getProfile(), (double*)seed_profile[j]->getProfile());
+		local_dist_prob[j] = get_prob_dist(d);
+		if (local_dist_prob[j] < VERY_SMALL_DOUBLE)
+		{
+			local_dist_prob[j] = VERY_SMALL_DOUBLE;
+		}
+		sum = sum + local_dist_prob[j];
+	}
+	for (j = 0; j < seed_num; j++)
+	{
+		local_dist_prob[j] = local_dist_prob[j] / sum;
+	}
+#ifdef USE_TWO_DIST
+	sum = 0;
+	for (j = 0; j < seed_num; j++)
+	{
+		d2 = edist2.getDist((double*)seq_profile2[seq_idx]->getProfile(), (double*)seed_profile2[j]->getProfile());
+		local_dist_prob2[j] = get_prob_dist2(d2);
+		if (local_dist_prob2[j] < VERY_SMALL_DOUBLE)
+		{
+			local_dist_prob2[j] = VERY_SMALL_DOUBLE;
+		}
+		sum = sum + local_dist_prob2[j];
+	}
+	for (j = 0; j < seed_num; j++)
+	{
+		local_dist_prob2[j] = local_dist_prob2[j] / sum;
+	}
+#endif
+
+	for (k = 0; k < ab_num; k++)
+	{
+		sum = 0;
+		for (j = 0; j < seed_num; j++)
+		{
+			local_abund_prob[j] = get_prob_abund(seq_abundance[k][seq_idx], seed_abundance[j][k]);
+			if (local_abund_prob[j] < VERY_SMALL_DOUBLE)
+			{
+				local_abund_prob[j] = VERY_SMALL_DOUBLE;
+			}
+			sum += local_abund_prob[j];
+		}
+		for (j = 0; j < seed_num; j++)
+		{
+			seq_prob[seq_idx][j] = local_dist_prob[j];
+#ifdef USE_TWO_DIST
+			seq_prob[seq_idx][j] *= local_dist_prob2[j];
+#endif
+			seq_prob[seq_idx][j] *= (local_abund_prob[j] / sum);
+		}
+	}
+
+	sum = 0;
+	for (j = 0; j < seed_num; j++)
+	{
+		sum = sum + seq_prob[seq_idx][j];
+	}
+
+	max = 0;
+	tempbin = -1;
+	for (j = 0; j < seed_num; j++)
+	{
+		seq_prob[seq_idx][j] = seq_prob[seq_idx][j] / sum;
+		if (max < seq_prob[seq_idx][j])
+		{
+			max = seq_prob[seq_idx][j];
+			tempbin = j;
+		}
+	}
+
+	if (seq_bin[seq_idx] != tempbin)
+	{
+		(*atomic_diff_count)++;
+		seq_bin[seq_idx] = tempbin;
+	}
+	is_estimated[seq_idx] = true;
+}
+
+void EManager::threadfunc_Seq_C(int seq_idx, long double min_prob, unsigned int min_seqlen)
+{
+	int j, k;
+	long double sum, d, max;
+#ifdef USE_TWO_DIST
+	long double d2;
+#endif
+
+	EucDist edist(kmer_len);
+	edist.setNormalization(true);
+#ifdef USE_TWO_DIST
+	SpearmanDist edist2(kmer_len2);
+	edist2.setNormalization(true);
+#endif
+
+	std::vector<long double> local_dist_prob(seed_num);
+#ifdef USE_TWO_DIST
+	std::vector<long double> local_dist_prob2(seed_num);
+#endif
+	std::vector<long double> local_abund_prob(seed_num);
+
+	if (is_estimated[seq_idx] == false)
+	{
+		sum = 0;
+		for (j = 0; j < seed_num; j++)
+		{
+			d = edist.getDist((double*)seq_profile[seq_idx]->getProfile(), (double*)seed_profile[j]->getProfile());
+			local_dist_prob[j] = get_prob_dist(d);
+			sum = sum + local_dist_prob[j];
+		}
+		for (j = 0; j < seed_num; j++)
+		{
+			local_dist_prob[j] = local_dist_prob[j] / sum;
+		}
+#ifdef USE_TWO_DIST
+		sum = 0;
+		for (j = 0; j < seed_num; j++)
+		{
+			d2 = edist2.getDist((double*)seq_profile2[seq_idx]->getProfile(), (double*)seed_profile2[j]->getProfile());
+			local_dist_prob2[j] = get_prob_dist2(d2);
+			sum = sum + local_dist_prob2[j];
+		}
+		for (j = 0; j < seed_num; j++)
+		{
+			local_dist_prob2[j] = local_dist_prob2[j] / sum;
+		}
+#endif
+
+		for (k = 0; k < ab_num; k++)
+		{
+			sum = 0;
+			for (j = 0; j < seed_num; j++)
+			{
+				local_abund_prob[j] = get_prob_abund(seq_abundance[k][seq_idx], seed_abundance[j][k]);
+				sum += local_abund_prob[j];
+			}
+			for (j = 0; j < seed_num; j++)
+			{
+				seq_prob[seq_idx][j] = local_dist_prob[j];
+#ifdef USE_TWO_DIST
+				seq_prob[seq_idx][j] *= local_dist_prob2[j];
+#endif
+				seq_prob[seq_idx][j] *= (local_abund_prob[j] / sum);
+			}
+		}
+
+		sum = 0;
+		for (j = 0; j < seed_num; j++)
+		{
+			sum = sum + seq_prob[seq_idx][j];
+		}
+		for (j = 0; j < seed_num; j++)
+		{
+			seq_prob[seq_idx][j] = seq_prob[seq_idx][j] / sum;
+			if (seq_prob[seq_idx][j] != seq_prob[seq_idx][j])
+			{
+				seq_prob[seq_idx][j] = 0;
+			}
+		}
+	}
+
+	max = 0;
+	seq_bin[seq_idx] = -1;
+	for (j = 0; j < seed_num; j++)
+	{
+		if (seq_prob[seq_idx][j] > max)
+		{
+			max = seq_prob[seq_idx][j];
+			seq_bin[seq_idx] = j;
+		}
+	}
+	if (max <= min_prob)
+	{
+		seq_bin[seq_idx] = -1;
+	}
+	else
+	{
+		std::lock_guard<std::mutex> lock(thread_mutex);
+		seed_count[seq_bin[seq_idx]]++;
 	}
 }
 

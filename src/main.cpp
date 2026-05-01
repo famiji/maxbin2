@@ -102,12 +102,10 @@ int main(int argc, char *argv[])
 		em.addAbund(abund_file[i]);
 	}
 	em.setVerbose(isverbose);
-	// Removed the restriction that threadnum <= abund_count so all threads
-	// can be used regardless of how many abundance files are provided.
-	//if (threadnum > abund_count)
-	//{
-	//	threadnum = abund_count;
-	//}
+	if (threadnum > abund_count)
+	{
+		threadnum = abund_count;
+	}
 	em.setThreadNum(threadnum);
 	if (maxem != -1)
 	{

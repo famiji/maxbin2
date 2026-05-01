@@ -10,9 +10,9 @@
 #include "NormalDistribution.h"
 #include "ThreadPool.h"
 #include <time.h>
+#include <vector>
+#include <mutex>
 #include <atomic>
-//#include <thread>
-//#include <mutex>
 /*
 #include <boost/math/distributions/normal.hpp>
 #include <boost/math/distributions/poisson.hpp>
@@ -108,8 +108,8 @@ class EManager
 		void logtime_end();
 		void threadfunc_E(long double abund, int k);
 		void threadfunc_M(int i);
-		void threadfunc_Seq_E(int i, std::atomic<int>* diff_count);
-		void threadfunc_Seq_C(int i, long double min_prob, unsigned int min_seqlen);
+		void threadfunc_Seq_E(int seq_idx, std::atomic<int>* atomic_diff_count);
+		void threadfunc_Seq_C(int seq_idx, long double min_prob, unsigned int min_seqlen);
 };
 
 
